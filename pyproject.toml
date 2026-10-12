@@ -1,0 +1,26 @@
+[project]
+name = "deep-research-api"
+version = "0.1.0"
+description = "Deep research agent as an API: FastAPI + PostgreSQL, three agent architectures, a stored comparison, OpenTelemetry traces"
+requires-python = ">=3.12"
+dependencies = []
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+extend-exclude = [".uv-cache", "study"]
+
+[tool.ruff.lint]
+# ASYNC finds blocking calls (requests, time.sleep) inside async functions
+extend-select = ["ASYNC"]
+
+[dependency-groups]
+dev = [
+    "anyio>=4.15.1",
+    "httpx>=0.28.1",
+    "pytest>=9.1.1",
+    "ruff>=0.17.0",
+]

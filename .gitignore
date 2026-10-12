@@ -1,0 +1,18 @@
+# secrets
+.env
+
+# python
+.venv/
+__pycache__/
+.pytest_cache/
+.ruff_cache/
+
+# local tooling
+uv.toml
+.uv-cache/
+.claude/settings.local.json
+.claude/*.local.md
+.claude/.cc-writes/
+
+# personal study notes
+study/
