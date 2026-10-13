@@ -115,7 +115,8 @@ app/
   search.py        search() -> call_tavily()
   tracing.py       tracer provider, run context and caps, step() helper
   jobs.py          run_research(run_id), run_comparison(comparison_id), fail_stale_runs()
-  evaluate.py      metrics(run) from M2, judge(run) from M5
+  evaluate.py      metrics(run, report, sources, latency_s) from M2; judge(run_id, comparison_id)
+                   and pick_winner(rows) from M5
   agents/
     __init__.py    ARCHITECTURES: name -> (description, run function)
     react.py  orchestrator.py  reflection.py
@@ -200,7 +201,7 @@ Target length: 600 to 1,000 words.
 
 - The runs of one comparison execute one after the other. Latency then does not include waiting for
   the other runs, and the provider rate limit is respected.
-- **Metrics** (counted in code for every run, stored in `runs.metrics`): `latency_s`, `llm_calls`,
+- **Metrics** (counted in code for every finished run, stored in `runs.metrics`; a failed run stores none): `latency_s`, `llm_calls`,
   `searches`, `prompt_tokens`, `completion_tokens`, `cost_usd` (sum of OpenRouter `usage.cost`),
   `sources_found`, `sources_cited`, `domains_cited`, `citation_validity` (share of `[n]` markers that
   refer to a stored source), `words`, `hit_cap`.

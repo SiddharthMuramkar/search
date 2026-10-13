@@ -6,13 +6,9 @@ caps, the step rows and the spans of the real code also run under test. See SPEC
 
 import asyncio
 import os
-from pathlib import Path
 
 import httpx
 import pytest
-
-ROOT = Path(__file__).parent.parent
-APP_EXISTS = (ROOT / "app" / "main.py").exists()
 
 # Tests use their own database on the compose PostgreSQL and no trace exporter.
 os.environ["DATABASE_URL"] = os.environ.get(
@@ -48,18 +44,17 @@ def anyio_backend():
 
 @pytest.fixture(scope="session", autouse=True)
 def _schema():
-    """Make fresh tables in the test database once. Does nothing until the app exists."""
-    if APP_EXISTS:
-        from app import db
+    """Make fresh tables in the test database once."""
+    from app import db
 
-        async def create():
-            async with db.engine.begin() as conn:
-                # drop first: create_all never changes a table that already exists
-                await conn.run_sync(db.Base.metadata.drop_all)
-                await conn.run_sync(db.Base.metadata.create_all)
-            await db.engine.dispose()
+    async def create():
+        async with db.engine.begin() as conn:
+            # drop first: create_all never changes a table that already exists
+            await conn.run_sync(db.Base.metadata.drop_all)
+            await conn.run_sync(db.Base.metadata.create_all)
+        await db.engine.dispose()
 
-        asyncio.run(create())
+    asyncio.run(create())
     yield
 
 
