@@ -97,11 +97,17 @@ Five tables. UUID primary keys. Status columns are `String`, not PostgreSQL enum
 - `sources.n` is the citation number of the source inside its run. `(run_id, url)` is unique.
 - `evaluations` is its own table: a judgment has its own model and rubric version, and a run can be
   judged again with a new rubric without losing the old result.
+- A foreign key that is not marked "null" above is `NOT NULL`. A step row therefore exists before
+  its sources. `steps.span_id` is `NOT NULL`: the database refuses a step with no span.
+- `runs.comparison_id` and `comparisons.winner_run_id` make a cycle. Both keys have a name, and the
+  second one is added after both tables exist (`use_alter`).
+- Defaults are set in Python (ids, `created_at`, `sources.cited`). There is no server default.
 
 ## 6. Code layout
 
 ```
 app/
+  __init__.py      empty: `fastapi dev app/main.py` needs `app` as a package
   main.py          FastAPI app, lifespan (calls fail_stale_runs), the 7 routes
   db.py            Base, engine, SessionLocal, Run, Step, Source, Comparison, Evaluation
   schemas.py       Pydantic request and response models
@@ -113,7 +119,8 @@ app/
   agents/
     __init__.py    ARCHITECTURES: name -> (description, run function)
     react.py  orchestrator.py  reflection.py
-migrations/        Alembic (async template)
+migrations/        Alembic (async template); `alembic.ini` is next to it. The URL and the
+                   metadata come from `app/db.py`
 tests/             contract tests, fake model and fake search
 scripts/e2e.sh     curl walk through every route
 docker-compose.yml PostgreSQL 18 + Jaeger
