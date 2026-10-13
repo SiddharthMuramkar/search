@@ -43,10 +43,15 @@ async def run(query: str) -> str:
     left = FOLLOW_UPS
     try:
         for _ in range(ROUNDS):
+            # a round that cannot cause a search would only polish the text (SPEC.md section 7)
+            if not left:
+                break
             critique = await criticize(context, pool, text)
             if critique["sufficient"]:
                 break
             queries = critique["follow_up_queries"][:left]
+            if not queries:
+                break
             left -= len(queries)
             await gather(queries, pool)
             text = await write(context, pool, "revise", text, critique["gaps"])
