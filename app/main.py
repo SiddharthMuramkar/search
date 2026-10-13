@@ -96,3 +96,53 @@ async def trace(run: RunById):
         "plan": run.plan,
         "steps": steps,
     }
+
+
+# --- one comparison -----------------------------------------------------------------------------
+
+
+@app.post("/research/compare", status_code=202, response_model=schemas.CompareAccepted)
+async def compare(body: schemas.CompareQuery, background_tasks: BackgroundTasks):
+    comparison = db.Comparison(query=body.query, status="queued")
+    async with db.SessionLocal() as session:
+        session.add(comparison)
+        await session.flush()  # the runs refer to the comparison: it is inserted first
+        runs = {
+            name: db.Run(
+                query=body.query,
+                architecture=name,
+                status="queued",
+                model=llm.configured_model(),
+                comparison_id=comparison.id,
+            )
+            for name in ARCHITECTURES
+        }
+        session.add_all(runs.values())
+        await session.commit()  # committed before the job is queued: the job loads the runs by id
+    background_tasks.add_task(jobs.run_comparison, comparison.id)
+    return {
+        "comparison_id": comparison.id,
+        "run_ids": {name: run.id for name, run in runs.items()},
+        "result_url": f"/research/compare/{comparison.id}",
+    }
+
+
+@app.get("/research/compare/{comparison_id}", response_model=schemas.Comparison)
+async def compare_result(comparison_id: uuid.UUID):
+    async with db.SessionLocal() as session:
+        comparison = await session.get(db.Comparison, comparison_id)
+        if comparison is None:
+            raise HTTPException(404, "comparison not found")
+        run_rows = select(db.Run).where(db.Run.comparison_id == comparison_id)
+        judged = select(db.Evaluation).where(db.Evaluation.comparison_id == comparison_id)
+        runs = (await session.scalars(run_rows.order_by(db.Run.created_at))).all()
+        evaluations = (await session.scalars(judged.order_by(db.Evaluation.created_at))).all()
+    return {
+        "id": comparison.id,
+        "query": comparison.query,
+        "status": comparison.status,
+        "runs": runs,
+        "evaluations": evaluations,
+        "winner": comparison.winner_run_id,
+        "method": comparison.method,
+    }

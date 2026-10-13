@@ -84,3 +84,42 @@ class Trace(BaseModel):
     trace_url: str | None
     plan: dict | None
     steps: list[Step]
+
+
+# --- one comparison -----------------------------------------------------------------------------
+
+
+class CompareQuery(BaseModel):
+    query: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
+
+
+class CompareAccepted(BaseModel):
+    comparison_id: uuid.UUID
+    run_ids: dict[str, uuid.UUID]
+    result_url: str
+
+
+class CompareRun(BaseModel):
+    id: uuid.UUID
+    architecture: str
+    status: str
+    error: str | None
+    metrics: dict | None
+
+
+class CompareEvaluation(BaseModel):
+    run_id: uuid.UUID
+    scores: dict
+    reasons: dict
+    judge_model: str
+    rubric_version: str
+
+
+class Comparison(BaseModel):
+    id: uuid.UUID
+    query: str
+    status: str
+    runs: list[CompareRun]
+    evaluations: list[CompareEvaluation]
+    winner: uuid.UUID | None
+    method: str | None
