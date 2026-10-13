@@ -259,6 +259,9 @@ Assumptions (each one is answered by the brief, so it was not asked):
 | The `/trace` payload is our stored step list. | 4 and 6: the payload shape is ours; the content is listed |
 | A free or a paid model is our choice. `.env.example` names the paid pair of the measured runs. With both model lines empty the service uses the free defaults of `app/llm.py`. | 1 and 7 |
 | No authentication, no deployment, no UI. | 1 and 8 |
+| A malformed run id gives 422 (the path type is a UUID); an unknown id gives 404. There is no maximum query length. | 4: the error shapes are ours |
+| Metric rounding: `latency_s` and `citation_validity` to 2 decimals, `cost_usd` to 6. `citation_validity` is 0.0 for a report with no marker. Markers are counted for each occurrence; a list such as `[1, 2]` is not parsed (shortcut). | 5: the comparison method is our design |
+| The stored report ends with `## Sources`, with the cited sources only. `words` counts the body before that list. Brackets in a source title are escaped, so a title cannot look like a marker. | 5: the report template is ours |
 
 ## 11. Decisions
 
@@ -274,6 +277,10 @@ Assumptions (each one is answered by the brief, so it was not asked):
 | D8 | Comparison runs one after the other | Fair latency; safe for 20 requests each minute. | A comparison takes longer. |
 | D9 | `String` status, JSONB for agent-shaped data | Simple migrations. | Less checking by the database. |
 | D10 | The service writes the source list of the report | A cited URL is always a retrieved URL. | The model cannot add a source it knows from training. |
+| D11 | Caps are checked in one place, `tracing.step()`. A model call that is not the synthesis stops at `MAX_LLM_CALLS - 1`, so the last call is always kept for the report. A refused step sets `hit_cap` and raises `tracing.CapReached`. | One check for all architectures; a run at the cap still writes a report. | An architecture must catch `CapReached`. |
+| D12 | Each retry of a model call is its own step and counts as a model call. | `llm_calls` equals the number of model steps in `/trace`. | A schema error costs one call of the cap. |
+| D13 | The current run (id, counters, `seq`, citation numbers) is one mutable object in a `ContextVar`, changed under one lock. Code never calls `.set()` inside a worker. | `asyncio.gather` gives each task a copy of the context, so a `.set()` in a worker is lost. | Every writer takes the lock. |
+| D14 | The tracer provider is a module object, not the global provider. `research.run` starts with an empty context. | A run is a trace of its own; FastAPI's native request spans stay off. | The HTTP request is not a span in the trace. |
 
 ## 12. Failure handling
 
