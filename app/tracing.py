@@ -1,12 +1,15 @@
 """The tracer provider, the caps, the current run and step(): one span and one `steps` row."""
 
 import asyncio
+import os
 import uuid
 from contextlib import asynccontextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass, field
 
+from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
 from opentelemetry.sdk.trace import SpanLimits, TracerProvider
+from opentelemetry.sdk.trace.export import BatchSpanProcessor
 from opentelemetry.trace import format_span_id
 from sqlalchemy import update
 
@@ -15,10 +18,16 @@ from app import db
 MAX_LLM_CALLS = 10
 MAX_SEARCHES = 6
 
-# No exporter here: spans are still recorded, so every run gets a real trace id. The SDK
-# truncates long span attributes (prompts, reports); the steps rows keep the full text.
+# Spans are recorded without an exporter too, so every run gets a real trace id. The SDK
+# truncates long span attributes (prompts, reports); the steps rows keep the full text. The
+# resource reads OTEL_SERVICE_NAME by itself.
 provider = TracerProvider(span_limits=SpanLimits(max_span_attribute_length=1000))
 tracer = provider.get_tracer("app")
+
+# the exporter reads the endpoint from the env var and adds /v1/traces; 1 s delay shows a trace in
+# Jaeger within seconds. An empty value turns it off.
+if os.environ.get("OTEL_EXPORTER_OTLP_ENDPOINT"):
+    provider.add_span_processor(BatchSpanProcessor(OTLPSpanExporter(), schedule_delay_millis=1000))
 
 
 class CapReached(Exception):

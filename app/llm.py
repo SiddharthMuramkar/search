@@ -5,13 +5,21 @@ import os
 import re
 from dataclasses import asdict, dataclass
 
+from openai import AsyncOpenAI
 from pydantic import BaseModel
 
 from app import tracing
 
-# shortcut: not a model id yet, set the free default from the OpenRouter model list with
-# call_openrouter (an empty LLM_MODEL then fails loudly instead of using a random model)
-DEFAULT_MODEL = "unset"
+OPENROUTER_URL = "https://openrouter.ai/api/v1"
+# Free default (an empty LLM_MODEL). Chosen on 13 Oct 2026 from the free models that list `tools` and
+# `structured_outputs`: the only one of four that completed a tool call and a Plan JSON.
+# shortcut: free models change and allow about 20 requests a minute, pick again from
+# https://openrouter.ai/api/v1/models when this id is retired
+DEFAULT_MODEL = "nvidia/nemotron-3-super-120b-a12b:free"
+# Free default for an empty JUDGE_MODEL, from another family than DEFAULT_MODEL. Chosen on 13 Oct 2026
+# from the free models that list `tools` and `structured_outputs`; it returned a valid Judgment JSON.
+# shortcut: a preview model, retired without notice; same upgrade as DEFAULT_MODEL
+DEFAULT_JUDGE_MODEL = "dots-studio/dots-3-note-preview:free"
 
 # a citation marker [n], with the space before it, so a removed marker leaves no gap
 # shortcut: a list like [1, 2] is not a marker and is not checked, parse it if real reports use it
@@ -48,8 +56,57 @@ def configured_model() -> str:
     return os.environ.get("LLM_MODEL") or DEFAULT_MODEL
 
 
+def judge_model() -> str:
+    return os.environ.get("JUDGE_MODEL") or DEFAULT_JUDGE_MODEL
+
+
+def parse_json(text: str) -> dict:
+    """Parse a JSON reply; a model may wrap it in a ```json fence."""
+    return json.loads(re.sub(r"^```(?:json)?\s*|\s*```$", "", text.strip()))
+
+
 async def call_openrouter(messages, *, tools=None, schema=None, model=None) -> Reply:
-    raise NotImplementedError("call_openrouter is not written yet (M3)")
+    kwargs = {}
+    if tools:
+        kwargs["tools"] = tools
+        kwargs["tool_choice"] = "auto"  # the only value every provider accepts
+    if schema:
+        # no `strict`: a provider may accept it and still return JSON that does not match
+        kwargs["response_format"] = {
+            "type": "json_schema",
+            "json_schema": {"name": schema.__name__, "schema": schema.model_json_schema()},
+        }
+    # a float timeout: the SDK 3.x runs on httpx2, so an httpx object would not work
+    # shortcut: one client for each call, no connection reuse; share one if latency matters
+    async with AsyncOpenAI(
+        api_key=os.environ["OPENROUTER_API_KEY"], base_url=OPENROUTER_URL, timeout=120.0
+    ) as client:
+        response = await client.chat.completions.create(
+            model=model or configured_model(), messages=messages, **kwargs
+        )
+    if not response.choices:  # OpenRouter can answer 200 with an error body
+        raise RuntimeError(f"OpenRouter returned no answer: {getattr(response, 'error', None)}")
+    message = response.choices[0].message
+    usage = response.usage
+    return Reply(
+        text=message.content or "",
+        tool_calls=[
+            {
+                "id": call.id,
+                "name": call.function.name,
+                # invalid JSON raises ValueError, which complete() retries
+                "arguments": json.loads(call.function.arguments),
+            }
+            for call in message.tool_calls or []
+        ],
+        data=parse_json(message.content or "") if schema else None,
+        usage={
+            "prompt_tokens": usage.prompt_tokens,
+            "completion_tokens": usage.completion_tokens,
+            "cost": float(getattr(usage, "cost", 0) or 0),  # OpenRouter's extra field
+        },
+        model=response.model,
+    )
 
 
 async def complete(messages, *, step, name=None, tools=None, schema=None, model=None) -> Reply:
