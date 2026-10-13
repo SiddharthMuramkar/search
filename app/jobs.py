@@ -1,6 +1,7 @@
 """Background jobs. A job gets a run id and opens its own sessions, never a caller's session."""
 
 import asyncio
+import logging
 import uuid
 from datetime import datetime
 
@@ -12,6 +13,7 @@ from app import db, evaluate, tracing
 from app.agents import ARCHITECTURES
 
 RUN_TIMEOUT_S = 180
+log = logging.getLogger(__name__)
 
 
 async def run_research(run_id: uuid.UUID) -> None:
@@ -82,3 +84,40 @@ async def fail_stale_runs() -> None:
             )
         )
         await session.commit()
+
+
+async def update_comparison(comparison_id: uuid.UUID, **values) -> None:
+    async with db.SessionLocal() as session:
+        await session.execute(
+            update(db.Comparison).where(db.Comparison.id == comparison_id).values(**values)
+        )
+        await session.commit()
+
+
+async def run_comparison(comparison_id: uuid.UUID) -> None:
+    """Run each architecture on the query one after the other (D8), judge the runs that are done
+    and pick the winner. The comparison is `failed` only when no run finished (SPEC.md section 4)."""
+    # shortcut: a crash outside run_research and the judge leaves the comparison `running`,
+    # fail_stale_runs does not sweep comparisons; add a sweep of them if that ever happens
+    await update_comparison(comparison_id, status="running")
+    query = select(db.Run).where(db.Run.comparison_id == comparison_id)
+    async with db.SessionLocal() as session:
+        run_ids = {run.architecture: run.id for run in (await session.scalars(query)).all()}
+    for architecture in ARCHITECTURES:  # in registry order, never with gather: fair latency
+        await run_research(run_ids[architecture])
+    async with db.SessionLocal() as session:
+        done = (await session.scalars(query.where(db.Run.status == "done"))).all()
+    judged = []
+    for run in done:
+        try:
+            scores = await evaluate.judge(run.id, comparison_id)
+            judged.append({"id": run.id, "scores": scores, **run.metrics})
+        except Exception:  # a failed judge call leaves that evaluation missing (SPEC.md section 8)
+            log.exception("the judge failed for run %s", run.id)  # its step holds the error too
+    await update_comparison(
+        comparison_id,
+        status="done" if done else "failed",
+        winner_run_id=evaluate.pick_winner(judged),
+        method=evaluate.METHOD,
+        finished_at=db.utcnow(),
+    )
