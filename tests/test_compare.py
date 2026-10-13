@@ -17,12 +17,6 @@ from app.agents import ARCHITECTURES
 pytestmark = pytest.mark.anyio
 
 
-@pytest.fixture(autouse=True)
-def two_architectures(monkeypatch):
-    # the registry has one design until M4 and M6 are merged, and "one after the other" needs two
-    monkeypatch.setitem(ARCHITECTURES, "react_copy", ARCHITECTURES["react"])
-
-
 async def compare(client, query="What is A?") -> dict:
     """POST a comparison and GET the stored result (the test client ran the job before it returned)."""
     response = await client.post("/research/compare", json={"query": query})
@@ -115,6 +109,8 @@ async def test_a_failed_judge_call_keeps_the_metrics_and_loses_the_evaluation(
         steps = (await client.get(f"/research/{run['id']}/trace")).json()["steps"]
         # the judge step is on the judged run, last, with the next seq; a failed one keeps its error
         assert steps[-1]["type"] == "judge" and steps[-1]["seq"] == len(steps)
+        # D18: the judge span is a trace of its own, not a child of research.run
+        assert steps[-1]["parent_span_id"] is None
         assert (steps[-1]["error"] is None) == (run["id"] in judged)
         # D15: the judge is not counted in llm_calls
         assert run["metrics"]["llm_calls"] == sum(

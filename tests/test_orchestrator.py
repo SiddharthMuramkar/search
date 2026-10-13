@@ -96,3 +96,18 @@ async def test_a_worker_that_fails_fails_the_run_with_the_reason(client, monkeyp
     status, steps = await run_orchestrator(client)
     assert status["status"] == "failed" and "worker down" in status["error"]
     assert "synthesis" not in [step["type"] for step in steps]
+
+
+async def test_an_empty_plan_uses_the_query_as_the_only_sub_question(client, monkeypatch):
+    fake = llm.call_openrouter
+
+    async def empty_plan(messages, *, tools=None, schema=None, model=None):
+        reply = await fake(messages, tools=tools, schema=schema, model=model)
+        if schema is llm.Plan:
+            reply.data = {"sub_questions": []}
+        return reply
+
+    monkeypatch.setattr(llm, "call_openrouter", empty_plan)
+    status, steps = await run_orchestrator(client)
+    kinds = [step["type"] for step in steps]
+    assert status["status"] == "done" and kinds.count("search") == kinds.count("worker") == 1

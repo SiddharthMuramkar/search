@@ -159,8 +159,9 @@ starts after `research.run` has ended (D18).
 All three use one model (`LLM_MODEL`), one search tool, the same caps and the same report template.
 Only the control structure differs, so a comparison compares architectures.
 
-- Caps for each run: 10 model calls, 6 searches, 300 seconds (D20). A model call that is not the final
-  report stops one call early, so a run at the cap can still write its report (D11).
+- Caps for each run: 10 model calls, 6 searches, 300 seconds (D20). A model call that is not a `synthesis`
+  step (the plan, a critique, a worker, an `act` turn) stops one call early, so a run at the cap can still
+  write its report (D11).
 - Each run starts with a `plan` step. The plan is stored on the run.
 - The report has a title, a summary, findings with numbered citations `[n]`, and limits and open
   questions (600 to 1,000 words). The service writes the source list itself from the stored sources,

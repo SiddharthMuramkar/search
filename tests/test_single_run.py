@@ -7,7 +7,7 @@ import re
 
 import pytest
 
-from app import llm, search, tracing
+from app import db, llm, search, tracing
 
 pytestmark = pytest.mark.anyio
 
@@ -109,3 +109,33 @@ async def test_a_source_title_with_brackets_is_not_a_citation_marker(client, mon
     result = (await client.get(f"/research/{await submit(client)}/result")).json()
     assert {int(n) for n in re.findall(r"\[(\d+)\]", result["report"])} <= {1, 2}
     assert "Report \\[7\\]" in result["report"]
+
+
+async def test_the_status_moves_through_planning_and_running_during_the_job(client, monkeypatch):
+    fake = llm.call_openrouter
+    seen = []
+
+    async def watching(messages, *, tools=None, schema=None, model=None):
+        async with db.SessionLocal() as session:
+            run = await session.get(db.Run, tracing.current.get().id)
+        seen.append(("plan" if schema is llm.Plan else "act" if tools else "report", run.status))
+        return await fake(messages, tools=tools, schema=schema, model=model)
+
+    monkeypatch.setattr(llm, "call_openrouter", watching)
+    await submit(client)
+    assert seen[0] == ("plan", "planning")
+    assert ("act", "running") in seen and ("report", "running") in seen
+
+
+async def test_every_step_without_an_error_has_an_output(client):
+    steps = (await client.get(f"/research/{await submit(client)}/trace")).json()["steps"]
+    assert steps and all(step["output"] for step in steps if not step["error"])
+
+
+async def test_the_app_sweeps_stale_runs_when_it_starts(client, seed_run):
+    from app.main import app
+
+    run_id = await seed_run("running")
+    async with app.router.lifespan_context(app):  # the lifespan is what calls the sweep
+        pass
+    assert (await client.get(f"/research/{run_id}/status")).json()["status"] == "failed"

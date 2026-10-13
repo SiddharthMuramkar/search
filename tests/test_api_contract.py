@@ -2,23 +2,15 @@
 
 The test client completes the background job before the POST returns, so tests do POST then GET with
 no polling. States that a finished job never shows (`queued`, 409) use rows inserted by `seed_run`.
-Tests are skipped until the code of their milestone exists, then they fail loudly.
 """
 
 import asyncio
 import re
 import uuid
-from pathlib import Path
 
 import pytest
 
-ROOT = Path(__file__).parent.parent
-APP_EXISTS = (ROOT / "app" / "main.py").exists()
-
-pytestmark = [
-    pytest.mark.anyio,
-    pytest.mark.skipif(not APP_EXISTS, reason="the app is built in M2"),
-]
+pytestmark = pytest.mark.anyio
 
 
 # the 12 metric names of SPEC.md section 8
@@ -36,10 +28,6 @@ METRICS = {
     "words",
     "hit_cap",
 }
-
-
-def needs(path: str, milestone: str):
-    return pytest.mark.skipif(not (ROOT / path).exists(), reason=f"built in {milestone}")
 
 
 async def submit(client, query="What is A?", **body) -> str:
@@ -139,7 +127,6 @@ async def test_r13_run_has_one_trace_and_every_step_has_a_span(client):
 # --- R6, R8, R9: architectures ------------------------------------------------------------------
 
 
-@needs("app/agents/orchestrator.py", "M4")
 async def test_r6_architectures_route_matches_the_registry(client):
     from app.agents import ARCHITECTURES
 
@@ -150,10 +137,7 @@ async def test_r6_architectures_route_matches_the_registry(client):
 
 @pytest.mark.parametrize("name", ["react", "orchestrator", "reflection"])
 async def test_r9_architecture_plans_searches_and_cites_only_its_sources(client, name):
-    from app.agents import ARCHITECTURES
 
-    if name not in ARCHITECTURES:
-        pytest.skip(f"{name} is not built yet")
     run_id = await submit(client, architecture=name)
     result = (await client.get(f"/research/{run_id}/result")).json()
     trace = (await client.get(f"/research/{run_id}/trace")).json()
@@ -164,7 +148,6 @@ async def test_r9_architecture_plans_searches_and_cites_only_its_sources(client,
     assert any(step["type"] == "search" for step in trace["steps"])
 
 
-@needs("app/agents/reflection.py", "M6")
 async def test_r8_reflection_searches_again_after_the_critique(client):
     run_id = await submit(client, architecture="reflection")
     types = [s["type"] for s in (await client.get(f"/research/{run_id}/trace")).json()["steps"]]
@@ -223,12 +206,7 @@ async def test_r14_stale_runs_are_failed_at_startup(client, seed_run):
 
 
 async def test_r10_r11_compare_stores_metrics_judgment_and_winner(client):
-    from app import jobs
     from app.agents import ARCHITECTURES
-
-    # app/evaluate.py exists from M2 (metrics), so the gate is the comparison job itself
-    if not hasattr(jobs, "run_comparison"):
-        pytest.skip("compare is built in M5")
 
     response = await client.post("/research/compare", json={"query": "What is A?"})
     assert response.status_code == 202
