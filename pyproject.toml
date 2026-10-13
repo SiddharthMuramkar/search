@@ -3,7 +3,16 @@ name = "deep-research-api"
 version = "0.1.0"
 description = "Deep research agent as an API: FastAPI + PostgreSQL, three agent architectures, a stored comparison, OpenTelemetry traces"
 requires-python = ">=3.12"
-dependencies = []
+dependencies = [
+    "alembic>=1.20.0",
+    "asyncpg>=0.32.0",
+    "fastapi[standard]==0.143.*",
+    "httpx>=0.28.1",
+    "openai>=3.29.0",
+    "opentelemetry-exporter-otlp-proto-http>=1.45.1",
+    "opentelemetry-sdk>=1.45.1",
+    "sqlalchemy[asyncio]>=2.1.4",
+]
 
 [tool.pytest.ini_options]
 pythonpath = ["."]
@@ -16,6 +25,10 @@ extend-exclude = [".uv-cache", "study"]
 [tool.ruff.lint]
 # ASYNC finds blocking calls (requests, time.sleep) inside async functions
 extend-select = ["ASYNC"]
+
+[tool.ruff.lint.isort]
+# ruff resolves by full module path: without this, app.main and app.agents are third-party until M2
+known-first-party = ["app"]
 
 [dependency-groups]
 dev = [

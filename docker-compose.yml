@@ -1,0 +1,25 @@
+name: search # one stack for every worktree: the default name is the folder name
+
+services:
+  postgres:
+    image: postgres:18
+    environment:
+      POSTGRES_USER: research
+      POSTGRES_PASSWORD: research
+      POSTGRES_DB: research
+    ports:
+      - "127.0.0.1:5432:5432"
+    configs:
+      - source: test_db
+        target: /docker-entrypoint-initdb.d/test_db.sql
+
+  jaeger:
+    image: jaegertracing/jaeger:2.22.0
+    ports:
+      - "127.0.0.1:16686:16686" # UI
+      - "127.0.0.1:4318:4318" # OTLP over HTTP
+
+configs:
+  # runs once, when the data directory is empty: the database of the tests
+  test_db:
+    content: CREATE DATABASE research_test;
