@@ -98,3 +98,32 @@ async def test_a_cap_still_ends_done_with_a_synthesis(client, monkeypatch, cap):
     assert status["status"] == "done" and status["error"] is None and metrics["hit_cap"] is True
     assert steps[-1]["type"] == "synthesis"
     assert sum(s["type"] != "search" for s in steps) == cap  # the cap, no more
+
+
+def critic(follow_ups):
+    """A critic that is never satisfied and always asks for these follow-up queries."""
+    fake = llm.call_openrouter
+
+    async def call(messages, *, tools=None, schema=None, model=None):
+        if schema is reflection.Critique:
+            data = {"sufficient": False, "gaps": ["gap"], "follow_up_queries": follow_ups}
+            return llm.Reply(text="", tool_calls=[], data=data, usage=USAGE, model="fake")
+        return await fake(messages, tools=tools, schema=schema, model=model)
+
+    return call
+
+
+async def test_a_round_that_cannot_cause_a_search_does_not_happen(client, monkeypatch):
+    # three queries use the whole follow-up budget in round 1: round 2 would only polish the text
+    monkeypatch.setattr(llm, "call_openrouter", critic(["a", "b", "c"]))
+    _, _, steps = await trace(client)
+    assert kinds(steps)[3:] == ["synthesis draft", "critique"] + ["search web_search"] * 3 + [
+        "synthesis revise"
+    ]
+
+
+async def test_a_critic_with_gaps_but_no_query_ends_the_run(client, monkeypatch):
+    monkeypatch.setattr(llm, "call_openrouter", critic([]))
+    _, status, steps = await trace(client)
+    assert status["status"] == "done"
+    assert steps[-1]["type"] == "critique" and "synthesis revise" not in kinds(steps)
