@@ -30,16 +30,16 @@ query and stores an evaluation. Every run is stored and traced. There is no UI.
 | R1 | `POST /research/query` accepts a query (architecture is optional), validates it, stores the run and returns 202 with the run id. It does not wait for the research. | System design | M2 |
 | R2 | The research runs in a background task. A run moves through `queued -> planning -> running -> done` or `failed`. | System design | M2 |
 | R3 | `GET /research/{id}/status` returns the status and timestamps. Unknown id gives 404. | System design | M2 |
-| R4 | `GET /research/{id}/result` returns the report, its sources, the architecture and the model. A run that is not `done` gives 409. | System design | M2, M3 |
-| R5 | `GET /research/{id}/trace` returns the plan and the ordered steps (plan, search, model calls, synthesis) with their input and output, and the trace id. | Observability | M2, M3 |
+| R4 | `GET /research/{id}/result` returns the report, its sources, the architecture and the model. A run that is not `done` gives 409. | System design | M2 |
+| R5 | `GET /research/{id}/trace` returns the plan and the ordered steps (plan, search, model calls, synthesis) with their input and output, and the trace id. | Observability | M2 |
 | R6 | `GET /research/architectures` lists the implemented architectures. | Architecture | M4 |
 | R7 | The caller can select the architecture in the request. An unknown name gives 422. | Architecture | M2 |
-| R8 | There are three architectures that differ in structure (section 7). They use the same model, search tool, caps and report template. | Architecture | M3, M4, M6 |
-| R9 | Each architecture writes a plan first, uses web search, and writes a report whose citations refer only to sources that the run retrieved. | Research quality | M3 |
+| R8 | There are three architectures that differ in structure (section 7). They use the same model, search tool, caps and report template. | Architecture | M2, M4, M6 |
+| R9 | Each architecture writes a plan first, uses web search, and writes a report whose citations refer only to sources that the run retrieved. | Research quality | M2, M3 |
 | R10 | `POST /research/compare` runs the same query on all architectures in the background. `GET /research/compare/{id}` returns the stored comparison. | Evaluation | M5 |
 | R11 | The comparison stores counted metrics and a judge score for each run, with the judge model and rubric version, and a winner chosen by a written rule. | Evaluation | M5 |
 | R12 | PostgreSQL stores each run: query, architecture, status, timestamps, plan, every step, sources, report. The schema is created by Alembic migrations. | Persistence | M1 |
-| R13 | Planning, search and synthesis are OpenTelemetry spans in one connected trace for each run. Spans carry what was planned, what was searched, what came back and which sources the report used. The trace id is stored on the run. | Observability | M3 |
+| R13 | Planning, search and synthesis are OpenTelemetry spans in one connected trace for each run. Spans carry what was planned, what was searched, what came back and which sources the report used. The trace id is stored on the run. | Observability | M2, M3 |
 | R14 | Failures are recorded, not lost: a model error or a time limit gives `failed` with the reason; a failed search is an error step and the run continues; runs left unfinished by a restart are set to `failed` at startup. | Code quality | M2, M3 |
 | R15 | API keys come only from environment variables. `.env.example` lists the names. No secret is in the repository. | Constraints | M1 |
 | R16 | Deliverables: migrations, a README (setup, environment, how to run, how to view traces, architectures and evaluation, questions and assumptions) and a curl script that calls every route. | Documentation | M7 |
@@ -50,7 +50,7 @@ Seven routes: six from the brief, plus one GET for the stored comparison.
 
 | Method | Route | Success | Errors |
 |---|---|---|---|
-| POST | `/research/query` | 202 `{id, status, architecture}` | 422 empty query or unknown architecture |
+| POST | `/research/query` | 202 `{id, status, architecture}` | 422 empty or whitespace-only query, or unknown architecture |
 | GET | `/research/{id}/status` | 200 `{id, status, architecture, created_at, started_at, finished_at, error}` | 404 |
 | GET | `/research/{id}/result` | 200 `{id, query, architecture, model, report, sources[], metrics}` | 404; 409 `{status, error}` if not `done` |
 | GET | `/research/{id}/trace` | 200 `{id, trace_id, trace_url, plan, steps[]}` | 404 |
@@ -60,12 +60,19 @@ Seven routes: six from the brief, plus one GET for the stored comparison.
 
 - Request body of `POST /research/query`: `{"query": "...", "architecture": "react"}`.
   `architecture` is optional; the default is `react`.
+  Request body of `POST /research/compare`: `{"query": "..."}`.
 - `POST /research/compare` returns 202 and not the comparison itself. Three research jobs take minutes,
   and the brief says research must not block the request. The body gives the GET route to poll.
 - `GET /research/compare/{id}` shows each run's status. If one run fails, the comparison completes
-  over the runs that finished.
+  over the runs that finished. A comparison is `failed` only when no run finished.
+- `run_ids` is a map `{architecture: run id}`. `result_url` is `/research/compare/{comparison_id}`.
+  `winner` is a run id, or null.
+- The 409 body is exactly `{status, error}` at the top level (no `detail` wrapper).
 - `sources[]` item: `{n, url, title, snippet, cited}`. `steps[]` item:
   `{seq, type, name, input, output, error, span_id, parent_span_id, started_at, ended_at}`.
+- `runs[]` item of a comparison: `{id, architecture, status, error, metrics}`. `evaluations[]` item:
+  `{run_id, scores, reasons, judge_model, rubric_version}`; `scores` has exactly the keys
+  `coverage`, `grounding`, `depth`, `clarity`.
 
 ## 5. Data model
 
@@ -81,7 +88,12 @@ Five tables. UUID primary keys. Status columns are `String`, not PostgreSQL enum
 | `evaluations` | id, run_id (FK), comparison_id (FK), scores (JSONB), reasons (JSONB), raw (JSONB), judge_model, rubric_version, created_at |
 
 - `steps.type` is `search` for a search call, else the label of the model call:
-  `plan`, `act`, `worker`, `critique`, `synthesis`, `judge`.
+  `plan`, `act`, `worker`, `critique`, `synthesis`, `judge`. The draft and the revision of
+  `reflection` are both `synthesis` steps; `steps.name` says `draft` or `revise`.
+- `runs.status` is `queued`, `planning`, `running`, `done` or `failed`. `comparisons.status` is
+  `queued`, `running`, `done` or `failed`.
+- `runs.model` is the configured `LLM_MODEL`. The model that really answered a call is stored in the
+  output of its step.
 - `sources.n` is the citation number of the source inside its run. `(run_id, url)` is unique.
 - `evaluations` is its own table: a judgment has its own model and rubric version, and a run can be
   judged again with a new rubric without losing the old result.
@@ -91,13 +103,13 @@ Five tables. UUID primary keys. Status columns are `String`, not PostgreSQL enum
 ```
 app/
   main.py          FastAPI app, lifespan (calls fail_stale_runs), the 7 routes
-  db.py            engine, SessionLocal, the 5 models
+  db.py            Base, engine, SessionLocal, Run, Step, Source, Comparison, Evaluation
   schemas.py       Pydantic request and response models
   llm.py           complete() -> call_openrouter()
   search.py        search() -> call_tavily()
-  tracing.py       tracer provider, step() helper
+  tracing.py       tracer provider, run context and caps, step() helper
   jobs.py          run_research(run_id), run_comparison(comparison_id), fail_stale_runs()
-  evaluate.py      metrics(run), judge(run)
+  evaluate.py      metrics(run) from M2, judge(run) from M5
   agents/
     __init__.py    ARCHITECTURES: name -> (description, run function)
     react.py  orchestrator.py  reflection.py
@@ -109,26 +121,38 @@ docker-compose.yml PostgreSQL 18 + Jaeger
 
 Fixed interfaces (tests depend on them):
 
-- `llm.complete(messages, *, step, tools=None, schema=None) -> Reply`: the only way to call the model.
+- `llm.complete(messages, *, step, name=None, tools=None, schema=None, model=None) -> Reply`: the
+  only way to call the model. `step` becomes `steps.type` and `name` becomes `steps.name`.
   It checks the call cap, records the step and the span, then calls
-  `llm.call_openrouter(messages, *, tools=None, schema=None) -> Reply` (network only).
+  `llm.call_openrouter(messages, *, tools=None, schema=None, model=None) -> Reply` (network only).
+  `model=None` means `LLM_MODEL`; the judge passes `JUDGE_MODEL`.
   `Reply` has `text`, `tool_calls`, `data` (parsed JSON when `schema` is given), `usage`, `model`.
+  `usage` has the keys `prompt_tokens`, `completion_tokens`, `cost`.
 - `search.search(query, *, max_results=5) -> list[dict]`: the only way to search. It checks the search
   cap, records the step, the span and the sources, then calls
   `search.call_tavily(query, *, max_results) -> list[dict]` (network only).
-  Each result has `url`, `title`, `snippet`, `content`.
+  Each result has `url`, `title`, `snippet`, `content`. `search` skips a URL that the run already
+  has and gives out the citation number `n` under one lock, so parallel workers cannot collide on
+  `(run_id, url)`.
 - Structured replies use these Pydantic models as `schema`. `call_openrouter` returns the parsed
   JSON; `complete` validates it and retries one time:
   - `Plan`: `sub_questions: list[str]`
   - `Findings`: `summary: str`, `source_numbers: list[int]` (the reply of one worker)
   - `Critique`: `sufficient: bool`, `gaps: list[str]`, `follow_up_queries: list[str]`
   - `Judgment`: `coverage`, `grounding`, `depth`, `clarity`, each `{score: 1-5, reason: str}`
-- A tool call in `Reply.tool_calls` is `{id, name, arguments}`. The one tool is `web_search(query)`.
+- A tool call in `Reply.tool_calls` is `{id, name, arguments}`; `arguments` is a parsed dict. The
+  one tool is `web_search(query)`.
+- `messages` are OpenAI-style dicts (`role`, `content`). A tool result goes back to the model as a
+  `role: "tool"` message.
 - Each architecture is `async def run(query: str) -> str` and returns the report body.
-- The caps are constants in `app/jobs.py`: `MAX_LLM_CALLS`, `MAX_SEARCHES`, `RUN_TIMEOUT_S`.
+- `RUN_TIMEOUT_S` is a constant in `app/jobs.py`. `MAX_LLM_CALLS` and `MAX_SEARCHES` are constants
+  in `app/tracing.py`, next to the run context, so `llm` and `search` do not import `jobs`. Code
+  reads a cap through its module at call time (tests change `jobs.RUN_TIMEOUT_S`).
+- `SessionLocal` is an `async_sessionmaker` with `expire_on_commit=False`.
 - Code imports the modules (`from app import llm, search`) and calls through them. Tests replace only
   `call_openrouter` and `call_tavily`, so caps, steps and spans also run under test.
-- The current run (id, counters) is held in a `contextvars.ContextVar` set by the job.
+- The current run (id, counters) is held in a `contextvars.ContextVar` in `app/tracing.py`, set by
+  the job.
 
 ## 7. Agent architectures
 
@@ -173,6 +197,9 @@ Target length: 600 to 1,000 words.
   `searches`, `prompt_tokens`, `completion_tokens`, `cost_usd` (sum of OpenRouter `usage.cost`),
   `sources_found`, `sources_cited`, `domains_cited`, `citation_validity` (share of `[n]` markers that
   refer to a stored source), `words`, `hit_cap`.
+- A `[n]` marker that does not refer to a stored source is counted (`citation_validity` is the share
+  before removal) and then removed from the stored report. A stored report therefore cites only
+  retrieved sources.
 - **Judge** (stored in `evaluations`): one model call for each report, with `JUDGE_MODEL` from a
   different model family than `LLM_MODEL`. The judge does not see the architecture name. It sees the
   query, the report and the snippets of the cited sources. It gives a 1 to 5 score with a one-line
@@ -255,13 +282,13 @@ Assumptions (each one is answered by the brief, so it was not asked):
 
 | Milestone | Content | Requirements | Done when |
 |---|---|---|---|
-| M1 | Runtime dependencies, `docker-compose.yml`, models, Alembic async setup, first migration, `.env.example` | R12, R15 | `alembic upgrade head` creates the 5 tables |
-| M2 | Single-run routes, background job with a stub agent, startup sweep, `scripts/e2e.sh` | R1-R5, R7, R14 | the single-run contract tests pass |
-| M3 | `llm.py`, `search.py`, `tracing.py`, `react` | R8, R9, R13, R14 | a real run shows one connected trace in Jaeger, and one full real report has been read and accepted for depth and grounding |
+| M1 | Runtime dependencies, `docker-compose.yml` (PostgreSQL with the databases `research` and `research_test`, Jaeger), models, Alembic async setup, first migration | R12, R15 | `alembic upgrade head` creates the 5 tables |
+| M2 | The full single-run path with a fake model: single-run routes, background job, `tracing.py`, `llm.py` and `search.py` (the two network functions exist as stubs that raise; M3 writes them), `react`, the counted metrics of section 8, startup sweep, `scripts/e2e.sh` | R1-R5, R7-R9, R13, R14 | the single-run contract tests pass with the fake model and the fake search, with three more tests: the one retry on JSON that does not match the schema, `hit_cap`, and the removal of a citation marker that has no source |
+| M3 | The real world: `call_openrouter`, `call_tavily`, the OTLP exporter and Jaeger, the default model ids | R9, R13, R14 | a real run shows one connected trace in Jaeger; a test with an in-memory span exporter proves one trace id, the parent links and the span content; one full real report has been read and accepted for depth and grounding |
 | M4 | `orchestrator`, `/research/architectures` | R6, R8 | the architecture review passes for 2 designs |
-| M5 | Compare, metrics, judge | R10, R11 | the compare tests pass |
+| M5 | Compare and the judge | R10, R11 | the compare tests pass, with a test of the winner rule on fixed scores |
 | M6 | `reflection` | R8 | the architecture review passes for 3 designs |
-| M7 | README, real runs on 3 to 5 queries, one run and one comparison on the free default models, `examples/` with stored outputs | R16 | `scripts/e2e.sh` calls all 7 routes and exits 0; the full audit passes |
+| M7 | README with: setup, environment, how to run, how to view traces, the questions asked with their answers, a results table, and its own section "Architectures and evaluation" (for each architecture: design, rationale, and cost / latency / quality against the others with the measured numbers; then the judge method and its limits). Also: real runs on 3 to 5 queries, one run and one comparison on the free default models, `examples/` with stored outputs | R16 | `scripts/e2e.sh` calls all 7 routes and exits 0; the full audit passes |
 
 Cut line: after M5 the submission is complete against the brief with two architectures. If M5 is not
 done by the middle of day 2, M6 is skipped. M7 is never skipped.

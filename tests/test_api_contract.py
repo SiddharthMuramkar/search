@@ -21,6 +21,23 @@ pytestmark = [
 ]
 
 
+# the 12 metric names of SPEC.md section 8
+METRICS = {
+    "latency_s",
+    "llm_calls",
+    "searches",
+    "prompt_tokens",
+    "completion_tokens",
+    "cost_usd",
+    "sources_found",
+    "sources_cited",
+    "domains_cited",
+    "citation_validity",
+    "words",
+    "hit_cap",
+}
+
+
 def needs(path: str, milestone: str):
     return pytest.mark.skipif(not (ROOT / path).exists(), reason=f"built in {milestone}")
 
@@ -82,6 +99,7 @@ async def test_r4_result_has_report_sources_architecture_model(client):
     body = (await client.get(f"/research/{run_id}/result")).json()
     assert body["architecture"] == "react" and body["model"]
     assert "[1]" in body["report"]
+    assert set(body["metrics"]) == METRICS
     assert {s["url"] for s in body["sources"]} == {"https://example.com/a", "https://example.org/b"}
     assert all({"n", "url", "title", "snippet", "cited"} <= set(s) for s in body["sources"])
 
@@ -89,11 +107,13 @@ async def test_r4_result_has_report_sources_architecture_model(client):
 async def test_r4_result_before_done_is_409(client, seed_run):
     response = await client.get(f"/research/{await seed_run('running')}/result")
     assert response.status_code == 409
+    assert response.json() == {"status": "running", "error": None}
 
 
 async def test_r4_result_of_a_failed_run_is_409_with_the_error(client, seed_run):
     response = await client.get(f"/research/{await seed_run('failed', error='boom')}/result")
-    assert response.status_code == 409 and "boom" in response.text
+    assert response.status_code == 409
+    assert response.json() == {"status": "failed", "error": "boom"}
 
 
 # --- R5, R13: trace -----------------------------------------------------------------------------
@@ -137,6 +157,7 @@ async def test_r9_architecture_plans_searches_and_cites_only_its_sources(client,
     run_id = await submit(client, architecture=name)
     result = (await client.get(f"/research/{run_id}/result")).json()
     trace = (await client.get(f"/research/{run_id}/trace")).json()
+    assert result["architecture"] == name
     numbers = {int(n) for n in re.findall(r"\[(\d+)\]", result["report"])}
     assert numbers and numbers <= {s["n"] for s in result["sources"]}
     assert trace["plan"] and trace["steps"][0]["type"] == "plan"
@@ -201,14 +222,19 @@ async def test_r14_stale_runs_are_failed_at_startup(client, seed_run):
 # --- R10, R11: comparison -----------------------------------------------------------------------
 
 
-@needs("app/evaluate.py", "M5")
 async def test_r10_r11_compare_stores_metrics_judgment_and_winner(client):
+    from app import jobs
     from app.agents import ARCHITECTURES
+
+    # app/evaluate.py exists from M2 (metrics), so the gate is the comparison job itself
+    if not hasattr(jobs, "run_comparison"):
+        pytest.skip("compare is built in M5")
 
     response = await client.post("/research/compare", json={"query": "What is A?"})
     assert response.status_code == 202
     started = response.json()
     assert set(started["run_ids"]) == set(ARCHITECTURES)
+    assert started["result_url"] == f"/research/compare/{started['comparison_id']}"
 
     body = (await client.get(started["result_url"])).json()
     assert body["status"] == "done" and body["method"] == "judge_mean_v1"
@@ -216,7 +242,7 @@ async def test_r10_r11_compare_stores_metrics_judgment_and_winner(client):
     assert len(body["runs"]) == len(body["evaluations"]) == len(ARCHITECTURES)
     for run in body["runs"]:
         assert run["status"] == "done"
-        assert {"latency_s", "llm_calls", "searches", "citation_validity"} <= set(run["metrics"])
+        assert set(run["metrics"]) == METRICS
     for evaluation in body["evaluations"]:
         assert set(evaluation["scores"]) == {"coverage", "grounding", "depth", "clarity"}
         assert evaluation["judge_model"] and evaluation["rubric_version"]

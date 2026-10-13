@@ -19,6 +19,8 @@ os.environ["DATABASE_URL"] = os.environ.get(
     "TEST_DATABASE_URL", "postgresql+asyncpg://research:research@localhost:5432/research_test"
 )
 os.environ.pop("OTEL_EXPORTER_OTLP_ENDPOINT", None)
+os.environ.setdefault("LLM_MODEL", "fake/llm")
+os.environ.setdefault("JUDGE_MODEL", "fake/judge")
 
 REPORT = "# Report\n\n## Summary\n\nFact A [1]. Fact B [2].\n"
 USAGE = {"prompt_tokens": 10, "completion_tokens": 5, "cost": 0.0}
@@ -46,12 +48,14 @@ def anyio_backend():
 
 @pytest.fixture(scope="session", autouse=True)
 def _schema():
-    """Create the tables in the test database once. Does nothing until the app exists."""
+    """Make fresh tables in the test database once. Does nothing until the app exists."""
     if APP_EXISTS:
         from app import db
 
         async def create():
             async with db.engine.begin() as conn:
+                # drop first: create_all never changes a table that already exists
+                await conn.run_sync(db.Base.metadata.drop_all)
                 await conn.run_sync(db.Base.metadata.create_all)
             await db.engine.dispose()
 
@@ -63,7 +67,7 @@ def make_fake_llm():
     """A model that plans, searches once, asks for one more search round, then writes REPORT."""
     critiques = 0
 
-    async def call_openrouter(messages, *, tools=None, schema=None):
+    async def call_openrouter(messages, *, tools=None, schema=None, model=None):
         nonlocal critiques
         from app.llm import Reply
 
@@ -116,7 +120,9 @@ async def seed_run():
 
     async def seed(status="queued", **fields):
         async with db.SessionLocal() as session:
-            run = db.Run(query="seeded", architecture="react", status=status, **fields)
+            run = db.Run(
+                query="seeded", architecture="react", model="fake/llm", status=status, **fields
+            )
             session.add(run)
             await session.commit()
             return str(run.id)
