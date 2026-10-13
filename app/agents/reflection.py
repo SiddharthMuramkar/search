@@ -90,7 +90,11 @@ async def write(
             {"role": "assistant", "content": draft},
             {
                 "role": "user",
-                "content": f"A critic found these gaps:\n{notes}\n\nRevise the report.",
+                "content": (
+                    f"A critic found these gaps:\n{notes}\n\nRevise the report to close them. "
+                    "The reader sees only the final report: do not mention the critic, the gaps "
+                    "or that this is a revision."
+                ),
             },
         ]
     messages.append({"role": "user", "content": llm.REPORT_PROMPT})
