@@ -454,15 +454,13 @@ Every `shortcut:` comment in the code, with its file:
 | `app/llm.py` (`call_openrouter`) | One model client for each call, so no connection reuse. | Latency matters. |
 | `app/search.py` (`call_tavily`) | The page text is cut at 4,000 characters, so a long page loses its end. | Reports lack detail. |
 | `app/agents/reflection.py` (`gather`) | The searches of one pass run one after the other. | Latency matters; use `asyncio.gather`. |
-| `app/jobs.py` (`run_comparison`) | `fail_stale_runs` does not sweep comparisons. A comparison whose job is lost stays `queued` or `running`. | It happens in practice. |
 | `.claude/hooks/pr_gate.sh` | A development hook, not part of the service: a folder path with a space is not found. | Use `git worktree list -z`. |
 
 Other limits:
 
 - **A restart loses a running job.** The job lives in the API process (FastAPI `BackgroundTasks`,
-  D1). At startup, every run in `queued`, `planning` or `running` is set to `failed`. A comparison
-  that was running is not swept (see above): its unfinished runs are `failed` and the comparison
-  stays `queued` or `running`.
+  D1). At startup, every run in `queued`, `planning` or `running` is set to `failed`, and so is every
+  comparison in `queued` or `running`.
 - **A SIGTERM waits for the running job**, up to the 300 second limit. Only a forced exit (a second
   signal, SIGKILL, a crash) leaves the run to the startup sweep.
 - **One API process only.** The startup sweep fails every unfinished run in the database, so a second
