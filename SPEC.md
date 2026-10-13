@@ -300,7 +300,7 @@ Assumptions (each one is answered by the brief, so it was not asked):
 | Cap reached | the architecture writes the report with what it has; `hit_cap = true` |
 | Orchestrator: the plan has no sub-questions | the query is the one sub-question, so the report always has at least one search |
 | Orchestrator: a worker fails with a real error | the other workers finish, then the run fails with the first error. Known cost: they still spend calls until the slowest returns (at most the 300 second limit). A `TaskGroup` would cancel them but would hide the error text in an `ExceptionGroup`. |
-| API restart during a run | at startup, runs in `queued`, `planning` or `running` are set to `failed` |
+| API restart during a run | at startup, runs in `queued`, `planning` or `running` are set to `failed`, and so are comparisons in `queued` or `running` |
 | SIGTERM of the API during a run | uvicorn waits for the running job (up to the time limit). Only a forced exit (a second signal, SIGKILL, a crash) leaves the run to the startup sweep. |
 
 ## 13. Milestones

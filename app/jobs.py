@@ -74,7 +74,8 @@ async def finish(run_id: uuid.UUID, body: str, started_at: datetime) -> None:
 
 
 async def fail_stale_runs() -> None:
-    """At startup: a run does not survive a restart, so an unfinished run can never finish."""
+    """At startup: a run does not survive a restart, so an unfinished run can never finish.
+    The same holds for a comparison: its job is gone and its runs are failed."""
     async with db.SessionLocal() as session:
         await session.execute(
             update(db.Run)
@@ -82,6 +83,11 @@ async def fail_stale_runs() -> None:
             .values(
                 status="failed", error="the API restarted during the run", finished_at=db.utcnow()
             )
+        )
+        await session.execute(
+            update(db.Comparison)
+            .where(db.Comparison.status.in_(("queued", "running")))
+            .values(status="failed", finished_at=db.utcnow())
         )
         await session.commit()
 
@@ -97,8 +103,6 @@ async def update_comparison(comparison_id: uuid.UUID, **values) -> None:
 async def run_comparison(comparison_id: uuid.UUID) -> None:
     """Run each architecture on the query one after the other (D8), judge the runs that are done
     and pick the winner. The comparison is `failed` only when no run finished (SPEC.md section 4)."""
-    # shortcut: a crash outside run_research and the judge leaves the comparison `running`,
-    # fail_stale_runs does not sweep comparisons; add a sweep of them if that ever happens
     await update_comparison(comparison_id, status="running")
     query = select(db.Run).where(db.Run.comparison_id == comparison_id)
     async with db.SessionLocal() as session:

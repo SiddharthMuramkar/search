@@ -11,7 +11,7 @@ from datetime import datetime
 
 import pytest
 
-from app import evaluate, llm
+from app import db, evaluate, jobs, llm
 from app.agents import ARCHITECTURES
 
 pytestmark = pytest.mark.anyio
@@ -181,3 +181,13 @@ async def test_post_returns_202_with_three_keys_and_an_unknown_id_is_404(client)
 @pytest.mark.parametrize("body", [{}, {"query": "   "}])
 async def test_an_empty_compare_query_is_422(client, body):
     assert (await client.post("/research/compare", json=body)).status_code == 422
+
+
+async def test_a_comparison_left_running_by_a_restart_is_failed_at_startup(client):
+    async with db.SessionLocal() as session:
+        comparison = db.Comparison(query="seeded", status="running")
+        session.add(comparison)
+        await session.commit()
+    await jobs.fail_stale_runs()
+    body = (await client.get(f"/research/compare/{comparison.id}")).json()
+    assert body["status"] == "failed"
