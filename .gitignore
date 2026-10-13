@@ -16,3 +16,6 @@ uv.toml
 
 # personal study notes
 study/
+
+# git worktrees of the parallel build steps
+.claude/worktrees/

@@ -230,7 +230,8 @@ Target length: 600 to 1,000 words.
 
 ## 10. Questions and assumptions
 
-Questions sent to the test owner (with the default used if there is no answer):
+Questions for the test owner. They were not sent: the time was too short to wait for an answer.
+Each one has the default that the build uses:
 
 1. How will you run the submission: with your own keys, on free tiers only? Must one comparison fit in
    a free daily quota? Default: yes. Stored example outputs are in the repository.
@@ -238,7 +239,7 @@ Questions sent to the test owner (with the default used if there is no answer):
    stored comparison acceptable, or must the POST block? Default: 202 plus GET.
 3. Do you have reference queries? Default: no. We use our own 3 to 5 queries and list them in the README.
 
-The same message asks how the reviewer wants access to the private repository.
+Access to the private repository is arranged with the submission.
 
 Assumptions (each one is answered by the brief, so it was not asked):
 
@@ -249,7 +250,7 @@ Assumptions (each one is answered by the brief, so it was not asked):
 | A run does not survive an API restart. One API process. | 2: "BackgroundTasks, a task queue, or any worker pattern you choose" |
 | One stored judgment for each compare call. No aggregate ranking endpoint. | 4 and 5: "the same query"; "for a given query" |
 | The `/trace` payload is our stored step list. | 4 and 6: the payload shape is ours; the content is listed |
-| A free or a paid model is our choice. | 1 and 7 |
+| A free or a paid model is our choice. `.env.example` names the paid pair of the measured runs. With both model lines empty the service uses the free defaults of `app/llm.py`. | 1 and 7 |
 | No authentication, no deployment, no UI. | 1 and 8 |
 
 ## 11. Decisions
@@ -282,16 +283,20 @@ Assumptions (each one is answered by the brief, so it was not asked):
 
 | Milestone | Content | Requirements | Done when |
 |---|---|---|---|
-| M1 | Runtime dependencies, `docker-compose.yml` (PostgreSQL with the databases `research` and `research_test`, Jaeger), models, Alembic async setup, first migration | R12, R15 | `alembic upgrade head` creates the 5 tables |
-| M2 | The full single-run path with a fake model: single-run routes, background job, `tracing.py`, `llm.py` and `search.py` (the two network functions exist as stubs that raise; M3 writes them), `react`, the counted metrics of section 8, startup sweep, `scripts/e2e.sh` | R1-R5, R7-R9, R13, R14 | the single-run contract tests pass with the fake model and the fake search, with three more tests: the one retry on JSON that does not match the schema, `hit_cap`, and the removal of a citation marker that has no source |
-| M3 | The real world: `call_openrouter`, `call_tavily`, the OTLP exporter and Jaeger, the default model ids | R9, R13, R14 | a real run shows one connected trace in Jaeger; a test with an in-memory span exporter proves one trace id, the parent links and the span content; one full real report has been read and accepted for depth and grounding |
-| M4 | `orchestrator`, `/research/architectures` | R6, R8 | the architecture review passes for 2 designs |
+| M1 | Runtime dependencies, `docker-compose.yml` (PostgreSQL with the databases `research` and `research_test`, Jaeger), models, Alembic async setup, first migration | R12, R15 | `alembic upgrade head` creates the 5 tables and `alembic check` finds no difference; `create_all`, `drop_all`, `create_all` work on `research_test` |
+| M2 | The full single-run path with a fake model: single-run routes, background job, `tracing.py`, `llm.py` and `search.py` (the two network functions exist as stubs that raise; M3 writes them), `react`, the counted metrics of section 8, startup sweep. `app/jobs.py` has no `run_comparison` before M5 | R1-R5, R7-R9, R13, R14 | the single-run contract tests pass with the fake model and the fake search, with three more tests: the one retry on JSON that does not match the schema, `hit_cap`, and the removal of a citation marker that has no source |
+| M3 | The real world: `call_openrouter`, `call_tavily`, the OTLP exporter and Jaeger, the default model ids, `scripts/e2e.sh` for the single-run routes | R9, R13, R14 | a real POST returns before the research ends (a poll shows `planning` or `running`); a real run shows one connected trace in Jaeger; a run that a restart killed is `failed` after startup; a test with an in-memory span exporter proves one trace id, the parent links and the span content; one full real report has been read and accepted for depth and grounding |
+| M4 | `orchestrator`, `/research/architectures` | R6, R8 | the architecture review passes for 2 designs; a test proves that for an `orchestrator` run `llm_calls` and `searches` equal the stored steps and no `seq` repeats |
 | M5 | Compare and the judge | R10, R11 | the compare tests pass, with a test of the winner rule on fixed scores |
 | M6 | `reflection` | R8 | the architecture review passes for 3 designs |
-| M7 | README with: setup, environment, how to run, how to view traces, the questions asked with their answers, a results table, and its own section "Architectures and evaluation" (for each architecture: design, rationale, and cost / latency / quality against the others with the measured numbers; then the judge method and its limits). Also: real runs on 3 to 5 queries, one run and one comparison on the free default models, `examples/` with stored outputs | R16 | `scripts/e2e.sh` calls all 7 routes and exits 0; the full audit passes |
+| M7 | README with: setup, environment, how to run, how to view traces, the questions asked with their answers, a results table, and its own section "Architectures and evaluation" (for each architecture: design, rationale, and cost / latency / quality against the others with the measured numbers; then the judge method and its limits). Also: the other routes in `scripts/e2e.sh`, real runs on 3 to 5 queries, one run and one comparison on the free default models, `examples/` with stored outputs | R16 | `scripts/e2e.sh` calls all 7 routes and exits 0; the full audit passes |
 
-Cut line: after M5 the submission is complete against the brief with two architectures. If M5 is not
-done by the middle of day 2, M6 is skipped. M7 is never skipped.
+Build order: M1 and M2 one after the other. M3 to M6 are built at the same time, each on its own
+branch in its own worktree, with the fake model, and merge in the order M3, M4, M5, M6. A milestone
+that is not green is not merged.
+
+Cut line: after M5 the submission is complete against the brief with two architectures. M6 merges
+last and is the first to stay out. M7 is never skipped.
 
 Tests: pytest with the AnyIO plugin and `httpx.AsyncClient` on the ASGI app. The database is the
 compose PostgreSQL, database `research_test`. Each test reads only the run it created. The test
