@@ -166,7 +166,7 @@ Fixed interfaces (tests depend on them):
 All three share: one model (`LLM_MODEL`), one search tool, the same caps, the same report template.
 Only the control structure differs. This makes the comparison a comparison of architectures.
 
-**Caps for each run:** 10 model calls, 6 searches, 180 seconds. One comparison is at most about
+**Caps for each run:** 10 model calls, 6 searches, 300 seconds (D20). One comparison is at most about
 33 model calls (3 runs + 3 judge calls).
 
 **Plan first:** each architecture starts with a `plan` step. The run status is `planning` during this
@@ -287,18 +287,19 @@ Assumptions (each one is answered by the brief, so it was not asked):
 | D17 | The OTLP exporter is added to the tracer provider only when `OTEL_EXPORTER_OTLP_ENDPOINT` is set and not empty, with a 1 s batch delay. | Tests run with no exporter; a trace shows in Jaeger within seconds. | A crash can lose the last second of spans. |
 | D18 | The judge step (`type = "judge"`) is stored on the judged run with `seq` continuing, after `research.run` ended. Its span is a one-span trace of its own (`parent_span_id` null, not in `runs.trace_id`). Judge steps are not counted in `llm_calls`, tokens or `cost_usd`. | The metrics are frozen when the run ends, before the judge runs; a judge call is not research work, so the architectures stay comparable. | An exception to D12 and section 9: `/trace` lists the judge step, Jaeger does not show it in the run's trace, and `llm_calls` equals the model steps in `/trace` except `judge`. |
 | D19 | `reflection` splits the 6 searches: the first pass searches at most 3 sub-questions, and the critic's follow-up queries get at most 3 in all rounds. A critic that says `sufficient` ends the loop with no revision (the draft is the report). | The first pass cannot use the cap that the critique needs; a revision with no new evidence would only polish the text. | Fewer searches in the first pass than `react` may use. |
+| D20 | The time limit of a run is 300 seconds, not 180. | A dry run with the paid models (GLM-5.3, canned search) took 35 s for `orchestrator`, 89 s for `react` and 173 s for `reflection`. Live search adds time, and `reflection` is the slowest by design (SPEC.md section 7), so 180 s would cut off the architecture under test and make the comparison unfair. | A stuck run holds its place longer before it fails. |
 
 ## 12. Failure handling
 
 | Event | Result |
 |---|---|
-| Run longer than 180 seconds | `failed`, `error = "time limit"` |
+| Run longer than 300 seconds | `failed`, `error = "time limit"` |
 | Model call fails after the SDK retries (429, 5xx, network) | `failed` with the provider message |
 | Model returns JSON that does not match the schema | one retry, then `failed` |
 | Search call fails | the step is stored with its error; the run continues |
 | Cap reached | the architecture writes the report with what it has; `hit_cap = true` |
 | Orchestrator: the plan has no sub-questions | the query is the one sub-question, so the report always has at least one search |
-| Orchestrator: a worker fails with a real error | the other workers finish, then the run fails with the first error. Known cost: they still spend calls until the slowest returns (at most the 180 second limit). A `TaskGroup` would cancel them but would hide the error text in an `ExceptionGroup`. |
+| Orchestrator: a worker fails with a real error | the other workers finish, then the run fails with the first error. Known cost: they still spend calls until the slowest returns (at most the 300 second limit). A `TaskGroup` would cancel them but would hide the error text in an `ExceptionGroup`. |
 | API restart during a run | at startup, runs in `queued`, `planning` or `running` are set to `failed` |
 | SIGTERM of the API during a run | uvicorn waits for the running job (up to the time limit). Only a forced exit (a second signal, SIGKILL, a crash) leaves the run to the startup sweep. |
 

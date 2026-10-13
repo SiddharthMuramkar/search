@@ -1,6 +1,7 @@
 """The tracer provider, the caps, the current run and step(): one span and one `steps` row."""
 
 import asyncio
+import logging
 import os
 import uuid
 from contextlib import asynccontextmanager
@@ -22,6 +23,8 @@ MAX_SEARCHES = 6
 # truncates long span attributes (prompts, reports); the steps rows keep the full text. The
 # resource reads OTEL_SERVICE_NAME by itself.
 provider = TracerProvider(span_limits=SpanLimits(max_span_attribute_length=1000))
+# the SDK logs a warning for each truncated attribute; the truncation is wanted, so keep errors only
+logging.getLogger("opentelemetry.attributes").setLevel(logging.ERROR)
 tracer = provider.get_tracer("app")
 
 # the exporter reads the endpoint from the env var and adds /v1/traces; 1 s delay shows a trace in

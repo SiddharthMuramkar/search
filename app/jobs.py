@@ -12,7 +12,7 @@ from sqlalchemy import select, update
 from app import db, evaluate, tracing
 from app.agents import ARCHITECTURES
 
-RUN_TIMEOUT_S = 180
+RUN_TIMEOUT_S = 300  # D20: reflection is sequential by design; a real run took 173 s on GLM-5.3
 log = logging.getLogger(__name__)
 
 
