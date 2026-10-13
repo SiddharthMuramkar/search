@@ -8,6 +8,12 @@ from pydantic import BaseModel, StringConstraints, field_validator
 
 from app.agents import ARCHITECTURES
 
+
+class Architecture(BaseModel):
+    name: str
+    description: str
+
+
 # --- one research run ---------------------------------------------------------------------------
 
 

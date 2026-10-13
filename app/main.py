@@ -9,6 +9,7 @@ from fastapi.responses import JSONResponse
 from sqlalchemy import select
 
 from app import db, jobs, llm, schemas
+from app.agents import ARCHITECTURES
 
 
 @asynccontextmanager
@@ -18,6 +19,14 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="Deep Research API", lifespan=lifespan)
+
+# --- the architectures --------------------------------------------------------------------------
+
+
+@app.get("/research/architectures", response_model=list[schemas.Architecture])
+async def architectures():
+    return [{"name": name, "description": entry[0]} for name, entry in ARCHITECTURES.items()]
+
 
 # --- one research run ---------------------------------------------------------------------------
 
