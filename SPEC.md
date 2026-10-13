@@ -260,6 +260,7 @@ Assumptions (each one is answered by the brief, so it was not asked):
 | A free or a paid model is our choice. `.env.example` names the paid pair of the measured runs. With both model lines empty the service uses the free defaults of `app/llm.py`. | 1 and 7 |
 | No authentication, no deployment, no UI. | 1 and 8 |
 | A malformed run id gives 422 (the path type is a UUID); an unknown id gives 404. There is no maximum query length. | 4: the error shapes are ours |
+| The free defaults for an empty model line are `nvidia/nemotron-3-super-120b-a12b:free` (generator) and `dots-studio/dots-3-note-preview:free` (judge), chosen on 13 Oct 2026 from the free models that list `tools` and `structured_outputs`. They are for a reviewer with a free key; the measured runs use the paid pair of `.env.example`. | 1 and 7: the model is our choice |
 | Metric rounding: `latency_s` and `citation_validity` to 2 decimals, `cost_usd` to 6. `citation_validity` is 0.0 for a report with no marker. Markers are counted for each occurrence; a list such as `[1, 2]` is not parsed (shortcut). | 5: the comparison method is our design |
 | The stored report ends with `## Sources`, with the cited sources only. `words` counts the body before that list. Brackets in a source title are escaped, so a title cannot look like a marker. | 5: the report template is ours |
 
@@ -281,6 +282,9 @@ Assumptions (each one is answered by the brief, so it was not asked):
 | D12 | Each retry of a model call is its own step and counts as a model call. | `llm_calls` equals the number of model steps in `/trace`. | A schema error costs one call of the cap. |
 | D13 | The current run (id, counters, `seq`, citation numbers) is one mutable object in a `ContextVar`, changed under one lock. Code never calls `.set()` inside a worker. | `asyncio.gather` gives each task a copy of the context, so a `.set()` in a worker is lost. | Every writer takes the lock. |
 | D14 | The tracer provider is a module object, not the global provider. `research.run` starts with an empty context. | A run is a trace of its own; FastAPI's native request spans stay off. | The HTTP request is not a span in the trace. |
+| D15 | `call_openrouter` makes one `AsyncOpenAI` client for each call (float timeout 120 s, the SDK's default retries). A structured reply uses `response_format` json_schema with no `strict`, and the JSON is parsed here and validated by `complete()`. `usage.cost` is OpenRouter's extra field. | Simple, and a provider that ignores `strict` still works. | No connection reuse. |
+| D16 | `call_tavily` asks for the page text in the same call: `snippet` is Tavily's summary, `content` is the page text cut at 4,000 characters. Any HTTP error is raised as `Tavily <status>: <body>`. | D4: one call gives both. The body names the reason (432 is the plan limit). | A long page loses its end. |
+| D17 | The OTLP exporter is added to the tracer provider only when `OTEL_EXPORTER_OTLP_ENDPOINT` is set and not empty, with a 1 s batch delay. | Tests run with no exporter; a trace shows in Jaeger within seconds. | A crash can lose the last second of spans. |
 
 ## 12. Failure handling
 
@@ -292,6 +296,7 @@ Assumptions (each one is answered by the brief, so it was not asked):
 | Search call fails | the step is stored with its error; the run continues |
 | Cap reached | the architecture writes the report with what it has; `hit_cap = true` |
 | API restart during a run | at startup, runs in `queued`, `planning` or `running` are set to `failed` |
+| SIGTERM of the API during a run | uvicorn waits for the running job (up to the time limit). Only a forced exit (a second signal, SIGKILL, a crash) leaves the run to the startup sweep. |
 
 ## 13. Milestones
 

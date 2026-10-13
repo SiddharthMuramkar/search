@@ -1,11 +1,16 @@
 """The only way to search: search() records the step and the sources, call_tavily() is the network."""
 
 import json
+import os
 from urllib.parse import urlsplit
 
+import httpx
 from opentelemetry.trace import StatusCode
 
 from app import db, tracing
+
+TAVILY_URL = "https://api.tavily.com/search"
+PAGE_CHARS = 4000
 
 # the one tool of the agents, in the OpenAI tools format
 TOOL = {
@@ -23,7 +28,23 @@ TOOL = {
 
 
 async def call_tavily(query: str, *, max_results: int) -> list[dict]:
-    raise NotImplementedError("call_tavily is not written yet (M3)")
+    body = {"query": query, "max_results": max_results, "include_raw_content": True}
+    headers = {"Authorization": f"Bearer {os.environ['TAVILY_API_KEY']}"}
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        response = await client.post(TAVILY_URL, json=body, headers=headers)
+    if response.is_error:
+        # the body names the reason (432 is the plan limit), the status line does not
+        raise RuntimeError(f"Tavily {response.status_code}: {response.text[:200]}")
+    return [
+        {
+            "url": r["url"],
+            "title": r["title"],
+            "snippet": r["content"],
+            # shortcut: the page text is cut at 4,000 characters, raise it if reports lack detail
+            "content": (r.get("raw_content") or r["content"])[:PAGE_CHARS],
+        }
+        for r in response.json()["results"]
+    ]
 
 
 async def search(query: str, *, max_results: int = 5) -> list[dict]:
