@@ -95,11 +95,13 @@ async def call_openrouter(messages, *, tools=None, schema=None, model=None) -> R
                 "id": call.id,
                 "name": call.function.name,
                 # invalid JSON raises ValueError, which complete() retries
+                # shortcut: that call's tokens are not counted, parse in _call if cost must be exact
                 "arguments": json.loads(call.function.arguments),
             }
             for call in message.tool_calls or []
         ],
-        data=parse_json(message.content or "") if schema else None,
+        # unparsed: _call parses it after the tokens are counted, so a bad reply still costs
+        data=None,
         usage={
             "prompt_tokens": usage.prompt_tokens,
             "completion_tokens": usage.completion_tokens,
@@ -109,20 +111,19 @@ async def call_openrouter(messages, *, tools=None, schema=None, model=None) -> R
     )
 
 
-async def complete(messages, *, step, name=None, tools=None, schema=None, model=None) -> Reply:
+async def complete(messages, *, step, tools=None, schema=None, model=None) -> Reply:
     """Call the model as a recorded step. A reply that does not parse or does not match `schema`
     is retried one time (SPEC.md section 12); the failed attempt stays a step with its error."""
     model = model or configured_model()
     try:
-        return await _call(messages, step, name, tools, schema, model)
+        return await _call(messages, step, tools, schema, model)
     except ValueError:  # pydantic's ValidationError and json's JSONDecodeError are ValueErrors
-        return await _call(messages, step, name, tools, schema, model)
+        return await _call(messages, step, tools, schema, model)
 
 
-async def _call(messages, step, name, tools, schema, model) -> Reply:
+async def _call(messages, step, tools, schema, model) -> Reply:
     run = tracing.current.get()
-    span_name = f"{step} {name}" if name else step
-    async with tracing.step(step, name, {"model": model, "messages": messages}, span_name) as (
+    async with tracing.step(step, None, {"model": model, "messages": messages}) as (
         row,
         span,
     ):
@@ -143,5 +144,8 @@ async def _call(messages, step, name, tools, schema, model) -> Reply:
             }
         )
         if schema is not None:
+            if reply.data is None:  # the tests' fake model gives parsed data
+                reply.data = parse_json(reply.text)
             reply.data = schema.model_validate(reply.data).model_dump()
+            row.output = asdict(reply)  # a failed parse keeps the raw reply above as the output
     return reply

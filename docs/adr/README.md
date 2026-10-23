@@ -11,6 +11,7 @@
 | [0007](0007-compare-is-async.md) | `POST /research/compare` returns 202 and is polled; failed only if no run finished |
 | [0008](0008-each-retry-is-a-step.md) | Each model-call retry is its own step and counts against the cap |
 | [0009](0009-judge-step-outside-run-metrics.md) | The judge step is stored on the run but kept out of its trace and metrics |
+| [0010](0010-two-architectures.md) | Two architectures, `react` and `orchestrator`; `reflection` is removed |
 
 ## When to add an ADR
 

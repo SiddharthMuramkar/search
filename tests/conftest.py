@@ -6,6 +6,7 @@ caps, the step rows and the spans of the real code also run under test. See SPEC
 
 import asyncio
 import os
+from pathlib import Path
 
 import httpx
 import pytest
@@ -44,44 +45,37 @@ def anyio_backend():
 
 @pytest.fixture(scope="session", autouse=True)
 def _schema():
-    """Make fresh tables in the test database once."""
+    """Build fresh tables in the test database once, with the migrations, not create_all."""
+    from alembic import command
+    from alembic.config import Config
+    from sqlalchemy import text
+
     from app import db
 
-    async def create():
+    async def drop():
         async with db.engine.begin() as conn:
-            # drop first: create_all never changes a table that already exists
             await conn.run_sync(db.Base.metadata.drop_all)
-            await conn.run_sync(db.Base.metadata.create_all)
+            await conn.execute(text("DROP TABLE IF EXISTS alembic_version"))
         await db.engine.dispose()
 
-    asyncio.run(create())
+    asyncio.run(drop())
+    # env.py reads the URL from app/db.py, so this migrates the test database
+    command.upgrade(Config(Path(__file__).parent.parent / "alembic.ini"), "head")
     yield
 
 
 def make_fake_llm():
-    """A model that plans, searches once, asks for one more search round, then writes REPORT."""
-    critiques = 0
+    """A model that plans, searches once, then writes REPORT."""
 
     async def call_openrouter(messages, *, tools=None, schema=None, model=None):
-        nonlocal critiques
         from app.llm import Reply
 
         if schema is not None:
-            name = schema.__name__
-            if name == "Critique":
-                critiques += 1
-                first = critiques == 1
-                data = {
-                    "sufficient": not first,
-                    "gaps": ["gap"] if first else [],
-                    "follow_up_queries": ["follow-up"] if first else [],
-                }
-            else:
-                data = {
-                    "Plan": {"sub_questions": ["What is A?", "What is B?"]},
-                    "Findings": {"summary": "Fact A [1].", "source_numbers": [1]},
-                    "Judgment": dict.fromkeys(("coverage", "grounding", "depth", "clarity"), SCORE),
-                }[name]
+            data = {
+                "Plan": {"sub_questions": ["What is A?", "What is B?"]},
+                "Findings": {"summary": "Fact A [1].", "source_numbers": [1]},
+                "Judgment": dict.fromkeys(("coverage", "grounding", "depth", "clarity"), SCORE),
+            }[schema.__name__]
             return Reply(text="", tool_calls=[], data=data, usage=USAGE, model="fake")
         if tools and not any(m.get("role") == "tool" for m in messages):
             call = {"id": "call_1", "name": "web_search", "arguments": {"query": "fake query"}}

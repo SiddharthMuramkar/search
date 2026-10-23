@@ -27,7 +27,7 @@ wait_for() {
   done
 }
 
-call GET /research/architectures 200 "" '[.[].name] | sort == ["orchestrator", "react", "reflection"]'
+call GET /research/architectures 200 "" '[.[].name] | sort == ["orchestrator", "react"]'
 
 # --- one run (react) ---
 call POST /research/query 202 '{"query": "How do HTTP/2 and HTTP/3 differ?"}'
@@ -49,17 +49,17 @@ jq -c '{trace_id, trace_url, steps: [.steps[].type]}' "$out"
 call GET /research/00000000-0000-0000-0000-000000000000/status 404
 call POST /research/query 422 '{"query": ""}'
 
-# --- one comparison (three runs one after the other, then the judge: several minutes) ---
+# --- one comparison (two runs one after the other, then the judge: several minutes) ---
 call POST /research/compare 422 '{"query": ""}'
 call GET /research/compare/00000000-0000-0000-0000-000000000000 404
-call POST /research/compare 202 '{"query": "How do HTTP/2 and HTTP/3 differ?"}' '.run_ids | length == 3'
+call POST /research/compare 202 '{"query": "How do HTTP/2 and HTTP/3 differ?"}' '.run_ids | length == 2'
 cid=$(jq -r '.comparison_id // empty' "$out")
 [ -n "$cid" ] || exit 1   # no comparison to follow
 echo "comparison id: $cid"
 
-wait_for "/research/compare/$cid" 5 300   # every 5 s, at most 1,500 s (3 runs of up to 300 s, then the judges)
+wait_for "/research/compare/$cid" 5 300   # every 5 s, at most 1,500 s (2 runs of up to 300 s, then the judges)
 call GET "/research/compare/$cid" 200 "" \
-  '.status == "done" and .method == "judge_mean_v1" and has("winner") and (.runs | length == 3)'
+  '.status == "done" and .method == "judge_mean_v1" and has("winner") and (.runs | length == 2)'
 echo "comparison status: $status"
 jq -c '{winner, runs: [.runs[] | {architecture, status}]}' "$out"
 

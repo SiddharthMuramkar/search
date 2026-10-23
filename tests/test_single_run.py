@@ -48,6 +48,28 @@ async def test_json_that_does_not_match_the_schema_is_retried_once(
         assert "validation error for Plan" in run["error"] and len(steps) == 2
 
 
+async def test_a_reply_that_is_not_json_is_retried_and_its_tokens_count(client, monkeypatch):
+    fake = llm.call_openrouter
+    left = 1
+
+    async def truncated_plan(messages, *, tools=None, schema=None, model=None):
+        nonlocal left
+        reply = await fake(messages, tools=tools, schema=schema, model=model)
+        if schema is llm.Plan and left:
+            left -= 1
+            reply.data, reply.text = None, '{"sub_questions": ["cut'
+        return reply
+
+    monkeypatch.setattr(llm, "call_openrouter", truncated_plan)
+    run_id = await submit(client)
+    result = (await client.get(f"/research/{run_id}/result")).json()
+    steps = (await client.get(f"/research/{run_id}/trace")).json()["steps"]
+    plans = [step for step in steps if step["type"] == "plan"]
+    assert len(plans) == 2 and plans[0]["error"] and plans[1]["error"] is None
+    model_steps = [step for step in steps if step["type"] != "search"]
+    assert result["metrics"]["prompt_tokens"] == USAGE["prompt_tokens"] * len(model_steps)
+
+
 @pytest.mark.parametrize(
     ("cap", "metric", "value"), [("MAX_SEARCHES", "searches", 2), ("MAX_LLM_CALLS", "llm_calls", 4)]
 )

@@ -1,7 +1,7 @@
 # Deep Research API
 
-FastAPI + PostgreSQL service that runs a deep research agent in the background, with three agent
-architectures, a stored comparison and OpenTelemetry traces. A take-home test with a short deadline.
+FastAPI + PostgreSQL service that runs a deep research agent in the background, with two agent
+architectures (`react`, `orchestrator`), a stored comparison and OpenTelemetry traces. A take-home test with a short deadline.
 
 The specification is `SPEC.md`. Read the section you work on before you write code. Requirement ids
 (`R1`...), decisions (`D1`...) and milestones (`M1`...) are defined there.
@@ -13,7 +13,7 @@ uv sync                                   # install
 docker compose up -d                      # PostgreSQL 18 + Jaeger (UI: http://localhost:16686)
 uv run alembic upgrade head               # apply migrations
 uv run --env-file .env fastapi dev app/main.py   # add --no-reload while a research job runs
-uv run pytest -q
+uv run pytest -q                          # also checks migrations == models (alembic check)
 uv run ruff check . && uv run ruff format --check .
 uv run alembic revision --autogenerate -m "message"   # then read the new file before you apply it
 bash scripts/e2e.sh                       # curl walk through every route (needs the running stack)
@@ -51,7 +51,7 @@ pytest with the AnyIO plugin. No agent framework, no queue, no extra service.
 
 ## How to work
 
-This repo follows Matt Pocock's skill flow. `REFERENCE.md` is the beginner's guide: what to type when.
+This repo follows Matt Pocock's skill flow.
 
 - New work: `/mattpocock-skills:grill-with-docs` → `/mattpocock-skills:to-spec` (a GitHub issue) →
   `/mattpocock-skills:to-tickets` (ticket issues with blocking links) → `/mattpocock-skills:implement`
@@ -84,12 +84,12 @@ This repo follows Matt Pocock's skill flow. `REFERENCE.md` is the beginner's gui
 
 ### Issue tracker
 
-Issues live in GitHub Issues for SiddharthMuramkar/search (via `gh`). See `docs/agents/issue-tracker.md`.
+Issues live in GitHub Issues for SiddharthMuramkar/search (via `gh`).
 
 ### Triage labels
 
-The five default labels: `needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`. See `docs/agents/triage-labels.md`.
+The five default labels: `needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`.
 
 ### Domain docs
 
-Single-context: `GLOSSARY.md` and `docs/adr/` at the root. See `docs/agents/domain.md`.
+Single-context: `GLOSSARY.md` and `docs/adr/` at the root.
