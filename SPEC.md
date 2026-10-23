@@ -267,6 +267,9 @@ Assumptions (each one is answered by the brief, so it was not asked):
 
 ## 11. Decisions
 
+This table is frozen. New decisions are ADRs in `docs/adr/`; the ADRs that record the decisions
+below cite their D-id (index: `docs/adr/README.md`).
+
 | Id | Decision | Reason | Tradeoff |
 |---|---|---|---|
 | D1 | FastAPI `BackgroundTasks`, in-process | The brief names it. No extra service. | A restart loses running jobs; one API process only. A queue with a worker is the upgrade. |
@@ -305,6 +308,8 @@ Assumptions (each one is answered by the brief, so it was not asked):
 | SIGTERM of the API during a run | uvicorn waits for the running job (up to the time limit). Only a forced exit (a second signal, SIGKILL, a crash) leaves the run to the startup sweep. |
 
 ## 13. Milestones
+
+M1 to M7 drove the first build. New work is tracked in GitHub Issues (see `REFERENCE.md`).
 
 | Milestone | Content | Requirements | Done when |
 |---|---|---|---|
