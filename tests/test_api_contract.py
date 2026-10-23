@@ -135,7 +135,7 @@ async def test_r6_architectures_route_matches_the_registry(client):
     assert all(a["description"] for a in body)
 
 
-@pytest.mark.parametrize("name", ["react", "orchestrator", "reflection"])
+@pytest.mark.parametrize("name", ["react", "orchestrator"])
 async def test_r9_architecture_plans_searches_and_cites_only_its_sources(client, name):
 
     run_id = await submit(client, architecture=name)
@@ -146,12 +146,6 @@ async def test_r9_architecture_plans_searches_and_cites_only_its_sources(client,
     assert numbers and numbers <= {s["n"] for s in result["sources"]}
     assert trace["plan"] and trace["steps"][0]["type"] == "plan"
     assert any(step["type"] == "search" for step in trace["steps"])
-
-
-async def test_r8_reflection_searches_again_after_the_critique(client):
-    run_id = await submit(client, architecture="reflection")
-    types = [s["type"] for s in (await client.get(f"/research/{run_id}/trace")).json()["steps"]]
-    assert "critique" in types and "search" in types[types.index("critique") :]
 
 
 # --- R14: failures ------------------------------------------------------------------------------

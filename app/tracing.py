@@ -68,7 +68,7 @@ async def update_run(**values) -> None:
 
 
 @asynccontextmanager
-async def step(kind: str, name: str | None, input: dict, span_name: str):
+async def step(kind: str, name: str | None, input: dict, span_name: str | None = None):
     """Record one step of the current run: a span and a `steps` row, opened and closed together.
 
     Checks the caps first. A model call that is not a `synthesis` stops one call early, so an
@@ -90,7 +90,7 @@ async def step(kind: str, name: str | None, input: dict, span_name: str):
         setattr(run, counter, getattr(run, counter) + 1)
         run.seq += 1
         seq = run.seq
-    with tracer.start_as_current_span(span_name) as span:
+    with tracer.start_as_current_span(span_name or kind) as span:
         row = db.Step(
             run_id=run.id,
             seq=seq,

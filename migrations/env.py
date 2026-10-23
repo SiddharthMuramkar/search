@@ -12,7 +12,8 @@ config = context.config
 
 # Interpret the config file for Python logging.
 if config.config_file_name is not None:
-    fileConfig(config.config_file_name)
+    # keep loggers made before this runs (the tests migrate in-process)
+    fileConfig(config.config_file_name, disable_existing_loggers=False)
 
 # The URL and the metadata come from app/db.py: migrations and the app use the same database.
 target_metadata = db.Base.metadata
